@@ -127,6 +127,13 @@ textarea{min-height:88px;resize:vertical}
 .est label span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .est input[type=number]{padding:6px;text-align:center}
 
+/* Photo recognition */
+.snap-img{display:block;width:100%;max-height:200px;object-fit:cover;border-radius:12px;background:var(--track)}
+.guess{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;min-height:52px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);text-align:left}
+.guess b{display:block;font-weight:500}
+.guess small{display:block;color:var(--muted);font-size:13px}
+.guess .pc{font-weight:700;white-space:nowrap}
+
 /* Bottom nav */
 .tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:center;
   padding:6px max(16px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));z-index:5}
@@ -171,6 +178,18 @@ textarea{min-height:88px;resize:vertical}
         <div style="width:150px"><select id="log-meal" aria-label="Meal to log to"></select></div>
       </div>
       <p class="hint" id="log-date-hint"></p>
+    </section>
+
+    <section class="card stack">
+      <h2 class="h2">Snap a meal</h2>
+      <p class="hint">Take or choose a photo and the app guesses the dish. Recognition runs on your device and the photo is not uploaded. The first scan downloads a model of about 55 MB, then it is cached.</p>
+      <div class="grid2">
+        <button class="btn primary" id="snap-cam" type="button">Take photo</button>
+        <button class="btn" id="snap-pick" type="button">Choose photo</button>
+      </div>
+      <input id="snap-file-cam" type="file" accept="image/*" capture="environment" hidden aria-label="Take a photo">
+      <input id="snap-file" type="file" accept="image/*" hidden aria-label="Choose a photo">
+      <div id="snap-out" role="status" aria-live="polite"></div>
     </section>
 
     <section class="card stack">
@@ -611,6 +630,115 @@ $("#qt-out").addEventListener("click",function(ev){
     draft=[];$("#qt-text").value="";renderDraft();
     toast("Added "+n+" item"+(n===1?"":"s")+" to "+mealName(meal));
   }
+});
+
+/* ---------- Photo recognition ---------- */
+/* Food-101 dish -> [display name, typical serving, kcal, protein, carbs, fat]. Rough estimates; the form lets you adjust. */
+var F101={
+ apple_pie:["Apple pie","1 slice",300,2,43,14],baby_back_ribs:["Baby back ribs","4 ribs",450,35,6,32],baklava:["Baklava","1 piece",230,3,25,14],
+ beef_carpaccio:["Beef carpaccio","1 plate",180,15,2,12],beef_tartare:["Beef tartare","1 serving",250,22,3,16],beet_salad:["Beet salad","1 bowl",150,4,18,7],
+ beignets:["Beignets","3 pieces",300,5,40,13],bibimbap:["Bibimbap","1 bowl",560,20,85,15],bread_pudding:["Bread pudding","1 serving",350,8,50,13],
+ breakfast_burrito:["Breakfast burrito","1 burrito",450,20,38,24],bruschetta:["Bruschetta","2 pieces",160,4,22,6],caesar_salad:["Caesar salad","1 bowl",330,10,14,26],
+ cannoli:["Cannoli","1 piece",250,6,28,13],caprese_salad:["Caprese salad","1 plate",280,15,6,22],carrot_cake:["Carrot cake","1 slice",450,5,55,24],
+ ceviche:["Ceviche","1 serving",180,24,12,4],cheesecake:["Cheesecake","1 slice",400,7,32,28],cheese_plate:["Cheese plate","1 plate",400,20,10,32],
+ chicken_curry:["Chicken curry","1 bowl",420,30,14,26],chicken_quesadilla:["Chicken quesadilla","1 quesadilla",530,30,38,28],chicken_wings:["Chicken wings","6 wings",480,40,3,34],
+ chocolate_cake:["Chocolate cake","1 slice",400,5,55,19],chocolate_mousse:["Chocolate mousse","1 cup",300,5,28,19],churros:["Churros","3 churros",350,4,42,18],
+ clam_chowder:["Clam chowder","1 bowl",280,10,22,16],club_sandwich:["Club sandwich","1 sandwich",590,32,45,30],crab_cakes:["Crab cakes","2 cakes",320,22,14,19],
+ creme_brulee:["Creme brulee","1 ramekin",330,5,28,23],croque_madame:["Croque madame","1 sandwich",600,32,32,38],cup_cakes:["Cupcake","1 cupcake",290,3,40,14],
+ deviled_eggs:["Deviled eggs","4 halves",260,14,2,22],donuts:["Donut","1 donut",290,4,33,16],dumplings:["Dumplings","5 pieces",280,12,36,9],
+ edamame:["Edamame","1 cup",190,17,14,8],eggs_benedict:["Eggs benedict","1 serving",560,25,30,38],escargots:["Escargots","6 pieces",190,17,3,12],
+ falafel:["Falafel","4 pieces",330,13,32,18],filet_mignon:["Filet mignon","180 g",360,40,0,22],fish_and_chips:["Fish and chips","1 plate",850,35,80,45],
+ foie_gras:["Foie gras","50 g",230,5,2,22],french_fries:["French fries","1 medium",365,4,48,17],french_onion_soup:["French onion soup","1 bowl",370,16,28,21],
+ french_toast:["French toast","2 slices",350,10,40,16],fried_calamari:["Fried calamari","1 serving",400,22,30,20],fried_rice:["Fried rice","1 plate",420,12,60,15],
+ frozen_yogurt:["Frozen yogurt","1 cup",220,5,38,6],garlic_bread:["Garlic bread","2 slices",250,6,30,12],gnocchi:["Gnocchi","1 plate",330,8,60,6],
+ greek_salad:["Greek salad","1 bowl",250,7,12,20],grilled_cheese_sandwich:["Grilled cheese sandwich","1 sandwich",400,15,30,25],grilled_salmon:["Grilled salmon","1 fillet",350,34,0,22],
+ guacamole:["Guacamole","1/4 cup",110,1.5,6,10],gyoza:["Gyoza","5 pieces",250,10,28,10],hamburger:["Hamburger","1 burger",450,25,36,22],
+ hot_and_sour_soup:["Hot and sour soup","1 bowl",130,8,12,6],hot_dog:["Hot dog","1 hot dog",300,11,24,18],huevos_rancheros:["Huevos rancheros","1 plate",480,22,42,26],
+ hummus:["Hummus","1/4 cup",100,5,9,6],ice_cream:["Ice cream","1 cup",270,5,32,14],lasagna:["Lasagna","1 piece",400,22,38,18],
+ lobster_bisque:["Lobster bisque","1 bowl",300,12,16,20],lobster_roll_sandwich:["Lobster roll","1 roll",400,22,32,20],macaroni_and_cheese:["Macaroni and cheese","1 cup",380,15,40,18],
+ macarons:["Macarons","2 pieces",140,2,20,6],miso_soup:["Miso soup","1 bowl",60,4,6,2],mussels:["Mussels","1 serving",280,40,10,8],
+ nachos:["Nachos","1 plate",600,20,55,35],omelette:["Omelette","2-egg omelette",220,15,2,17],onion_rings:["Onion rings","1 serving",400,5,45,22],
+ oysters:["Oysters","6 oysters",100,10,6,3],pad_thai:["Pad thai","1 plate",600,22,75,22],paella:["Paella","1 plate",450,28,55,12],
+ pancakes:["Pancakes","3 pancakes",340,9,52,11],panna_cotta:["Panna cotta","1 serving",290,4,26,19],peking_duck:["Peking duck","1 serving",400,30,5,29],
+ pho:["Pho","1 bowl",420,28,55,9],pizza:["Pizza","1 slice",285,12,36,10],pork_chop:["Pork chop","1 chop",300,32,0,18],
+ poutine:["Poutine","1 small",600,18,60,32],prime_rib:["Prime rib","200 g",520,45,0,37],pulled_pork_sandwich:["Pulled pork sandwich","1 sandwich",520,30,45,24],
+ ramen:["Ramen","1 bowl",500,20,65,18],ravioli:["Ravioli","1 plate",400,16,48,14],red_velvet_cake:["Red velvet cake","1 slice",420,4,52,22],
+ risotto:["Risotto","1 bowl",420,10,62,14],samosa:["Samosa","2 pieces",260,5,28,14],sashimi:["Sashimi","6 pieces",150,26,0,4],
+ scallops:["Scallops","5 pieces",180,26,6,5],seaweed_salad:["Seaweed salad","1 cup",70,2,10,3],shrimp_and_grits:["Shrimp and grits","1 bowl",500,28,48,22],
+ spaghetti_bolognese:["Spaghetti bolognese","1 plate",550,28,70,17],spaghetti_carbonara:["Spaghetti carbonara","1 plate",650,25,70,28],spring_rolls:["Spring rolls","2 rolls",220,6,30,8],
+ steak:["Steak","200 g",440,50,0,26],strawberry_shortcake:["Strawberry shortcake","1 serving",350,5,50,15],sushi:["Sushi","6 pieces",300,12,52,4],
+ tacos:["Tacos","2 tacos",400,18,36,22],takoyaki:["Takoyaki","6 balls",300,10,35,12],tiramisu:["Tiramisu","1 slice",400,6,38,24],
+ tuna_tartare:["Tuna tartare","1 serving",200,24,6,9],waffles:["Waffles","1 waffle",220,6,28,10]
+};
+var MODEL_ID="onnx-community/swin-finetuned-food101-ONNX";
+var TF_URL="https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
+var clsPromise=null, onModelProgress=null, guesses=[];
+
+function getClassifier(){
+  if(!clsPromise){
+    clsPromise=(async function(){
+      var tf=await import(TF_URL);
+      function make(dtype){return tf.pipeline("image-classification",MODEL_ID,{dtype:dtype,progress_callback:function(p){if(onModelProgress)onModelProgress(p)}})}
+      try{return await make("q4")}catch(e){return await make("q8")}  /* smaller 4-bit model first, 8-bit as fallback */
+    })().catch(function(e){clsPromise=null;throw e});
+  }
+  return clsPromise;
+}
+/* Decode the photo (respecting phone rotation) and shrink it so inference stays fast. */
+async function prepPhoto(file){
+  var bmp;
+  try{bmp=await createImageBitmap(file,{imageOrientation:"from-image"})}
+  catch(e){
+    bmp=await new Promise(function(res,rej){var im=new Image();im.onload=function(){res(im)};im.onerror=rej;im.src=URL.createObjectURL(file)});
+  }
+  var w=bmp.width||bmp.naturalWidth, h=bmp.height||bmp.naturalHeight, k=Math.min(1,640/Math.max(w,h));
+  var cv=document.createElement("canvas"); cv.width=Math.round(w*k); cv.height=Math.round(h*k);
+  cv.getContext("2d").drawImage(bmp,0,0,cv.width,cv.height);
+  return new Promise(function(res){cv.toBlob(function(b){res(URL.createObjectURL(b))},"image/jpeg",.88)});
+}
+function snapStatus(img,html){$("#snap-out").innerHTML=(img?'<img class="snap-img" alt="Your photo" src="'+img+'">':"")+'<div class="stack" style="margin-top:10px">'+html+'</div>'}
+async function handlePhoto(file){
+  if(!file)return;
+  var url;
+  try{url=await prepPhoto(file)}catch(e){snapStatus("",'<p class="hint over-txt">Could not read that image. Try another photo.</p>');return}
+  snapStatus(url,'<p class="hint" id="snap-msg">Loading the food model…</p><div class="bar"><i id="snap-bar" style="width:3%;background:var(--accent)"></i></div>');
+  onModelProgress=function(p){
+    if(p&&p.status==="progress"&&p.file&&/\.onnx/.test(p.file)){
+      var m=$("#snap-msg"),b=$("#snap-bar"); if(!m)return;
+      m.textContent="Downloading the food model (first time only): "+Math.round(p.progress)+"%";
+      b.style.width=Math.max(3,p.progress)+"%";
+    }
+  };
+  try{
+    var clf=await getClassifier();
+    var m2=$("#snap-msg"); if(m2)m2.textContent="Looking at your meal…";
+    var out=await clf(url,{top_k:3});
+    guesses=out.map(function(o){
+      var f=F101[o.label];
+      return f?{name:f[0],portion:f[1],kcal:f[2],p:f[3],c:f[4],f:f[5],score:o.score}
+              :{name:o.label.replace(/_/g," ").replace(/^./,function(c){return c.toUpperCase()}),portion:"",kcal:"",p:"",c:"",f:"",score:o.score};
+    });
+    var h=(guesses[0].score<.25?'<p class="hint">Not very sure about this one. Pick the closest match or add it manually.</p>':'<p class="hint">Tap the best match to review and add it. Calories are for a typical serving, so adjust the portion.</p>');
+    guesses.forEach(function(g,i){
+      h+='<button type="button" class="guess" data-i="'+i+'"><span><b>'+esc(g.name)+'</b><small class="num">'+(g.kcal!==""?esc(g.portion)+" · about "+g.kcal+" kcal":"No estimate. Enter the numbers.")+'</small></span><span class="pc num">'+Math.round(g.score*100)+'%</span></button>';
+    });
+    h+='<button type="button" class="btn small" id="snap-none">None of these</button>';
+    snapStatus(url,h);
+  }catch(e){
+    snapStatus(url,'<p class="hint over-txt">Could not load the food model. This needs an internet connection the first time, and it is blocked on the claude.ai preview page. It works on your GitHub Pages site.</p>');
+  }
+}
+$("#snap-cam").onclick=function(){$("#snap-file-cam").click()};
+$("#snap-pick").onclick=function(){$("#snap-file").click()};
+["snap-file-cam","snap-file"].forEach(function(id){
+  $("#"+id).onchange=function(ev){var f=ev.target.files[0];ev.target.value="";handlePhoto(f)};
+});
+$("#snap-out").addEventListener("click",function(ev){
+  var meal=$("#log-meal").value||defaultMeal();
+  if(ev.target.closest("#snap-none")){openForm({meal:meal});return}
+  var b=ev.target.closest(".guess"); if(!b)return;
+  var g=guesses[+b.dataset.i]; if(!g)return;
+  openForm({meal:meal,name:g.name,portion:g.portion,kcal:g.kcal,p:g.p,c:g.c,f:g.f});
 });
 
 /* ---------- Add / edit form (modal sheet) ---------- */
